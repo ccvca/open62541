@@ -115,7 +115,10 @@ void UA_sleep_ms(unsigned long ms);
 #define UA_inet_pton InetPton
 
 #if UA_IPV6
+/* Hack: Prevent Wincrypt-Includes */
+#define __WINCRYPT_H__
 # include <iphlpapi.h>
+#undef __WINCRYPT_H__
 # define UA_if_nametoindex if_nametoindex
 #endif
 

@@ -18,6 +18,10 @@
 #include <openssl/x509.h>
 #include <openssl/evp.h>
 
+#if !defined(OPENSSL_API_COMPAT) && defined(LIBRESSL_VERSION_NUMBER)
+#define OPENSSL_API_COMPAT 0x10100000L
+#endif
+
 _UA_BEGIN_DECLS
 
 void saveDataToFile(const char *fileName, const UA_ByteString *str);

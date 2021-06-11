@@ -490,6 +490,7 @@ if(UA_ENABLE_ENCRYPTION_OPENSSL OR UA_ENABLE_MQTT_TLS_OPENSSL)
     # https://cmake.org/cmake/help/v3.0/module/FindOpenSSL.html
     find_package(OpenSSL REQUIRED)
     list(APPEND open62541_LIBRARIES ${OPENSSL_LIBRARIES})
+    list(APPEND open62541_LIBRARIES bcrypt)
 endif ()
 
 if(UA_ENABLE_ENCRYPTION_MBEDTLS OR UA_ENABLE_PUBSUB_ENCRYPTION)
@@ -1252,6 +1253,8 @@ else()
     target_include_directories(open62541-plugins PRIVATE ${PROJECT_SOURCE_DIR}/plugins)
     target_include_directories(open62541-plugins PRIVATE ${PROJECT_BINARY_DIR}/src_generated)
     target_compile_definitions(open62541-plugins PRIVATE -DUA_DYNAMIC_LINKING_EXPORT)
+    # Prevent Wincrypt override warning.
+    target_compile_definitions(open62541-plugins PUBLIC NOCRYPT=1)
     set_target_properties(open62541-plugins PROPERTIES FOLDER "open62541/lib")
 
     if(UA_PACK_DEBIAN)

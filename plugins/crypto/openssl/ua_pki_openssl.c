@@ -492,7 +492,7 @@ UA_CertificateVerification_Verify (void *                verificationContext,
     /* Set flag to check if the certificate has an invalid signature */
     X509_STORE_CTX_set_flags (storeCtx, X509_V_FLAG_CHECK_SS_SIGNATURE);
 
-#if OPENSSL_VERSION_NUMBER >= 0x1010000fL
+#if OPENSSL_VERSION_NUMBER <= 0x1010000fL
     if (X509_STORE_CTX_get_check_issued (storeCtx) (storeCtx,certificateX509, certificateX509) != 1) {
         X509_STORE_CTX_set_flags (storeCtx, X509_V_FLAG_CRL_CHECK);
     }
@@ -506,11 +506,18 @@ UA_CertificateVerification_Verify (void *                verificationContext,
      * If the KU_KEY_CERT_SIGN and KU_CRL_SIGN of key_usage are set, then the certificate shall be
      * condidered as CA Certificate and cannot be used to establish a connection. Refer the test case
      * CTT/Security/Security Certificate Validation/029.js for more details */
+#if OPENSSL_API_COMPAT < 0x1100000fL
+    if(X509_check_purpose(certificateX509, X509_PURPOSE_CRL_SIGN, 1) && X509_check_ca(certificateX509))
+    {
+        return UA_STATUSCODE_BADCERTIFICATEUSENOTALLOWED;
+    }
+#else
     uint32_t val = X509_get_key_usage(certificateX509);
     if((val & KU_KEY_CERT_SIGN) &&
        (val & KU_CRL_SIGN)) {
         return UA_STATUSCODE_BADCERTIFICATEUSENOTALLOWED;
     }
+#endif
 
     opensslRet = X509_verify_cert (storeCtx);
     if (opensslRet == 1) {
@@ -519,7 +526,7 @@ UA_CertificateVerification_Verify (void *                verificationContext,
         /* Check if the not trusted certificate has a CRL file. If there is no CRL file available for the corresponding
          * parent certificate then return status code UA_STATUSCODE_BADCERTIFICATEISSUERREVOCATIONUNKNOWN. Refer the test
          * case CTT/Security/Security Certificate Validation/002.js */
-#if OPENSSL_VERSION_NUMBER >= 0x1010000fL
+#if OPENSSL_VERSION_NUMBER <= 0x1010000fL
         if (X509_STORE_CTX_get_check_issued (storeCtx) (storeCtx,certificateX509, certificateX509) != 1) {
 #else
         if (storeCtx->check_issued(storeCtx,certificateX509, certificateX509) != 1) {
@@ -568,12 +575,16 @@ UA_CertificateVerification_Verify (void *                verificationContext,
             for (int i = 0; i < trusted_cert_len; i++) {
                 trusted_cert = sk_X509_value(ctx->skTrusted, i);
 
+#if OPENSSL_API_COMPAT < 0x1100000fL
+                trusted_cert_keyid = (const ASN1_OCTET_STRING *)X509_get_ext_d2i(trusted_cert, NID_subject_key_identifier, NULL, NULL);
+                remote_cert_keyid = (const ASN1_OCTET_STRING *)X509_get_ext_d2i(certificateX509, NID_subject_key_identifier, NULL, NULL);
+#else
                 /* Fetch the Subject key identifier of the certificate in trust list */
                 trusted_cert_keyid = X509_get0_subject_key_id(trusted_cert);
 
                 /* Fetch the Subject key identifier of the remote certificate */
                 remote_cert_keyid = X509_get0_subject_key_id(certificateX509);
-
+#endif
                 /* Check remote certificate is present in the trust list */
                 cmpVal = ASN1_OCTET_STRING_cmp(trusted_cert_keyid, remote_cert_keyid);
                 if (cmpVal == 0){
