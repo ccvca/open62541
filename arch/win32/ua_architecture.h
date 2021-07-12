@@ -115,7 +115,20 @@ void UA_sleep_ms(unsigned long ms);
 #define UA_inet_pton InetPton
 
 #if UA_IPV6
+# if defined(__WINCRYPT_H__) && defined(UA_ENABLE_ENCRYPTION_LIBRESSL)
+#  error "Wincrypt is not compatile with LibreSSL"
+# endif
+# ifdef UA_ENABLE_ENCRYPTION_LIBRESSL
+/* Hack: Prevent Wincrypt-Includes */
+#  define __WINCRYPT_H__
+# endif
+
 # include <iphlpapi.h>
+
+# ifdef UA_ENABLE_ENCRYPTION_LIBRESSL
+#  undef __WINCRYPT_H__
+# endif
+
 # define UA_if_nametoindex if_nametoindex
 #endif
 
