@@ -26,6 +26,14 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, stopHandler);
     signal(SIGTERM, stopHandler);
 
+    UA_ByteString derPrivKey = UA_BYTESTRING_NULL;
+    UA_ByteString derCert = UA_BYTESTRING_NULL;
+    UA_StatusCode statusCertGen = UA_CreateCertificate(&derPrivKey, &derCert);
+    UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND, "StatusCode Cert: %s", UA_StatusCode_name(statusCertGen));
+    FILE* fpCert = fopen("cert.der", "w");
+    FILE* fpPKey = fopen("pkey.der", "w");
+    fwrite(derCert.data, 1, derCert.length, fpCert);
+    fwrite(derPrivKey.data, 1, derPrivKey.length, fpPKey);
     if(argc < 3) {
         UA_LOG_FATAL(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
                      "Missing arguments. Arguments are "
