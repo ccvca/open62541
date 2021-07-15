@@ -320,7 +320,8 @@ struct UA_SecurityPolicy {
     void (*clear)(UA_SecurityPolicy *policy);
 };
 
-UA_StatusCode UA_CreateCertificate(UA_ByteString *derPKey, UA_ByteString *derCert);
+UA_StatusCode
+UA_CreateCertificate(const UA_Logger *logger, UA_ByteString *derPKey, UA_ByteString *derCert);
 
 /**
  * PubSub SecurityPolicy

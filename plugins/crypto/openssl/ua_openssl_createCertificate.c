@@ -2,48 +2,104 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
- *    Copyright 2021 (c) Christian von Arnim, ISW University of Stuttgart (for VDW and umati)
+ *    Copyright 2021 (c) Christian von Arnim, ISW University of Stuttgart (for VDW and
+ * umati)
  *
  */
 
-#include "securitypolicy_openssl_common.h"
 #include "ua_openssl_version_abstraction.h"
 
+#include "securitypolicy_openssl_common.h"
+
 #define RSA_KEY_SIZE 4096
-#include <openssl/x509v3.h>
 #include <openssl/pem.h>
+#include <openssl/x509v3.h>
 
-int add_ext(X509 *cert, int nid, char *value);
+/**
+ * Join an array of UA_String to a single NULL-Terminated UA_String separated by character sep
+ */
+static UA_StatusCode UA_String_join_nullterm(const UA_String strings[], size_t lenStrings, char sep, UA_String *out) {
+    if(!out)
+    {
+        return UA_STATUSCODE_BADINVALIDARGUMENT;
+    }
+    UA_String_clear(out);
+    size_t totalSize = lenStrings;
+    size_t pos = 0;
+    for(size_t iStr = 0; iStr < lenStrings; ++iStr) {
+        totalSize += strings[iStr].length;
+    }
 
-int add_ext(X509 *cert, int nid, char *value)
-{
-    X509_EXTENSION *ex;
-    X509V3_CTX ctx;
-    /* This sets the 'context' of the extensions. */
-    /* No configuration database */
-    X509V3_set_ctx_nodb(&ctx);
-    /*
-     * Issuer and subject certs: both the target since it is self signed, no
-     * request and no CRL
-     */
-    X509V3_set_ctx(&ctx, cert, cert, NULL, NULL, 0);
-    ex = X509V3_EXT_conf_nid(NULL, &ctx, nid, value);
-    if (!ex)
-        return 0;
+    out->length = totalSize;
+    out->data = (UA_Byte*) UA_malloc(totalSize);
+    if(!out->data) {
+        return UA_STATUSCODE_BADOUTOFMEMORY;
+    }
 
-    X509_add_ext(cert, ex, -1);
-    X509_EXTENSION_free(ex);
-    return 1;
+    for(size_t iStr = 0; iStr < lenStrings; ++iStr) {
+        memcpy(&out->data[pos], strings[iStr].data, strings[iStr].length);
+        pos += strings[iStr].length;
+        out->data[pos] = sep;
+        ++pos;
+    }
+    out->data[out->length-1] = 0;
+
+    return UA_STATUSCODE_GOOD;
 }
 
-UA_StatusCode UA_CreateCertificate(UA_ByteString *derPKey, UA_ByteString *derCert)
-{
-    if(!derPKey || !derCert){
+/**
+ * Search for a character in a string (like strchr).
+ * \todo Handle UTF-8
+ *
+ * \return index of the character or -1 on case of an error.
+ */
+
+static UA_Int32
+UA_String_chr(const UA_String *pUaStr, char needl) {
+
+    UA_Byte byteNeedl = (UA_Byte)needl;
+
+    for(UA_Int32 i = 0; (size_t)i < pUaStr->length; ++i) {
+        if(pUaStr->data[i] == byteNeedl) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static UA_StatusCode
+add_x509V3ext(X509 *x509, int nid, const char *value) {
+    X509_EXTENSION *ex;
+    X509V3_CTX ctx;
+    X509V3_set_ctx_nodb(&ctx);
+    X509V3_set_ctx(&ctx, x509, x509, NULL, NULL, 0);
+    ex = X509V3_EXT_conf_nid(NULL, &ctx, nid, value);
+    if(!ex)
+        return UA_STATUSCODE_BADINTERNALERROR;
+
+    X509_add_ext(x509, ex, -1);
+    X509_EXTENSION_free(ex);
+    return UA_STATUSCODE_GOOD;
+}
+
+UA_StatusCode
+UA_CreateCertificate(const UA_Logger *logger, UA_ByteString *derPKey,
+                     UA_ByteString *derCert) {
+    if(!derPKey || !derCert) {
         return UA_STATUSCODE_BADINVALIDARGUMENT;
     }
     UA_ByteString_clear(derPKey);
     UA_ByteString_clear(derCert);
-
+    UA_String subject[3] = {UA_STRING_STATIC("C=DE"),
+                            UA_STRING_STATIC("O=SampleOrganization"),
+                            UA_STRING_STATIC("CN=Open62541Server@localhost")};
+    UA_UInt32 lenSubject = 3;
+    UA_String subjectAltName[2]= {
+        UA_STRING_STATIC("DNS:localhost"),
+        UA_STRING_STATIC("URI:urn:open62541.server.application")
+    };
+    UA_String fullAltSubj = UA_STRING_NULL;
+    UA_UInt32 lenSubjectAltName = 2;
     UA_Int32 serial = 1;
 
     /// \TODO: Seed Random geenrator!!
@@ -51,98 +107,155 @@ UA_StatusCode UA_CreateCertificate(UA_ByteString *derPKey, UA_ByteString *derCer
     EVP_PKEY *pkey = NULL;
     RSA *rsa = NULL;
 
+    UA_StatusCode errRet = UA_STATUSCODE_GOOD;
+
     pkey = EVP_PKEY_new();
     x509 = X509_new();
-    UA_StatusCode errRet = UA_STATUSCODE_GOOD;
 
     if(!pkey || !x509) {
         errRet = UA_STATUSCODE_BADOUTOFMEMORY;
         goto cleanup;
     }
 
-    //UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Generating RSA key. This may take a while.");
+    UA_LOG_INFO(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                "Create Certificate: Generating RSA key. This may take a while.");
     /// \todo use new RSA_generate_key_ex with backward compatible wrapper
     rsa = RSA_generate_key(RSA_KEY_SIZE, RSA_F4, NULL, NULL);
     if(!rsa) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Generating RSA key failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Generating RSA key failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
 
     if(EVP_PKEY_assign_RSA(pkey, rsa) != 1) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Assign RSA key failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Assign RSA key failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
-    /*RSA_free(rsa);
-    rsa = NULL;*/
+    // rsa will be freed by pkey
+    rsa = NULL;
 
-    // x509v3 has version 2 (https://www.openssl.org/docs/man1.1.0/man3/X509_set_version.html)
+    // x509v3 has version 2
+    // (https://www.openssl.org/docs/man1.1.0/man3/X509_set_version.html)
     if(X509_set_version(x509, 2) != 1) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Setting version failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting version failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
-    
+
     if(ASN1_INTEGER_set(X509_get_serialNumber(x509), serial) != 1) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Setting serial number failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting serial number failed.");
         // Only memory errors are possible
         errRet = UA_STATUSCODE_BADOUTOFMEMORY;
         goto cleanup;
     }
 
     if(X509_gmtime_adj(X509_get_notBefore(x509), 0) == NULL) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Setting 'not before' failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting 'not before' failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
 
-    if(X509_gmtime_adj(X509_get_notAfter(x509), (UA_Int64)60*60*24*356) == NULL) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Setting 'not before' failed.");
+    if(X509_gmtime_adj(X509_get_notAfter(x509), (UA_Int64)60 * 60 * 24 * 356) == NULL) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting 'not before' failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
 
     if(X509_set_pubkey(x509, pkey) != 1) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Setting publik key failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting publik key failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
 
-    X509_NAME * name = X509_get_subject_name(x509);
+    X509_NAME *name = X509_get_subject_name(x509);
     if(name == NULL) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Getting name failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Getting name failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
 
-    if(X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, (const unsigned char *) "UK", -1, -1, 0) != 1) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Setting name failed.");
-        errRet = UA_STATUSCODE_BADINTERNALERROR;
-        goto cleanup;
+    for(UA_UInt32 iSubject = 0; iSubject < lenSubject; ++iSubject) {
+        char field[16];
+        UA_Int32 sep = UA_String_chr(&subject[iSubject], '=');
+        if(sep == -1 || sep == 0 || ((size_t) sep == (subject[iSubject].length - 1)) || sep >= 15) {
+            UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                           "Create Certificate: Subject must contain one '=' with "
+                           "content before and after.");
+            errRet = UA_STATUSCODE_BADINTERNALERROR;
+            goto cleanup;
+        }
+        memcpy(field, subject[iSubject].data, sep);
+        field[sep] = 0;
+        UA_Byte* pData = &subject[iSubject].data[sep + 1];
+        if(X509_NAME_add_entry_by_txt(
+               name, field, MBSTRING_ASC,
+               (const unsigned char *)pData,
+               subject[iSubject].length - sep - 1, -1, 0) != 1) {
+            UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                           "Create Certificate: Setting subject failed.");
+            errRet = UA_STATUSCODE_BADINTERNALERROR;
+            goto cleanup;
+        }
     }
-    X509_NAME_add_entry_by_txt(name, "CN",
-                               MBSTRING_ASC, (const unsigned char *) "OpenSSL Group", -1, -1, 0);
-    /// \todo add other text parts
-
+    // Self signed, so issuer == subject
     if(X509_set_issuer_name(x509, name) != 1) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Setting name failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting name failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
 
-    add_ext(x509, NID_basic_constraints, "critical,CA:TRUE");
-    add_ext(x509, NID_key_usage, "critical,keyCertSign,cRLSign");
+    errRet = add_x509V3ext(x509, NID_basic_constraints, "CA:FALSE");
+    if(errRet != UA_STATUSCODE_GOOD) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting 'Basic Constraints' failed.");
+        goto cleanup;
+    }
+    // See https://datatracker.ietf.org/doc/html/rfc5280#section-4.2.1.3 for possible values
+    errRet = add_x509V3ext(x509, NID_key_usage, "digitalSignature,nonRepudiation,keyEncipherment,dataEncipherment,keyCertSign");
+    if(errRet != UA_STATUSCODE_GOOD) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting 'Key Usage' failed.");
+        goto cleanup;
+    }
+    errRet = add_x509V3ext(x509, NID_ext_key_usage, "serverAuth,clientAuth");
+    if(errRet != UA_STATUSCODE_GOOD) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting 'Extended Key Usage' failed.");
+        goto cleanup;
+    }
+    errRet = add_x509V3ext(x509, NID_subject_key_identifier, "hash");
+    if(errRet != UA_STATUSCODE_GOOD) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting 'Subject Key Identifier' failed.");
+        goto cleanup;
+    }
 
-    add_ext(x509, NID_subject_key_identifier, "hash");
-    add_ext(x509, NID_subject_alt_name, "DNS:localhost,URI:urn:open62541.server.application");
+    errRet = UA_String_join_nullterm(subjectAltName, lenSubjectAltName, ',', &fullAltSubj);
+    if(errRet != UA_STATUSCODE_GOOD) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Joining altSubject failed.");
+        goto cleanup;
+    }
+    errRet = add_x509V3ext(x509, NID_subject_alt_name, (const char*) fullAltSubj.data);
+    if(errRet != UA_STATUSCODE_GOOD) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting 'Subject Alternative Name:' failed.");
+        goto cleanup;
+    }
 
-    /* Some Netscape specific extensions */
-    /*add_ext(x509, NID_netscape_cert_type, "sslCA");
-
-    add_ext(x509, NID_netscape_comment, "example comment extension");*/
     if(X509_sign(x509, pkey, EVP_sha256()) == 0) {
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Signing failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Signing failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
@@ -150,17 +263,19 @@ UA_StatusCode UA_CreateCertificate(UA_ByteString *derPKey, UA_ByteString *derCer
     derPKey->length = i2d_PrivateKey(pkey, &derPKey->data);
     if(derPKey->length <= 0) {
         derPKey->length = 0;
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Create private .der key failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Create private .der key failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
-    BIO* bioCert = BIO_new_file("cert2.pem", "w");
+    BIO *bioCert = BIO_new_file("cert2.pem.crt", "w");
     PEM_write_bio_X509(bioCert, x509);
 
     derCert->length = i2d_X509(x509, &derCert->data);
     if(derCert->length <= 0) {
         derCert->length = 0;
-        //UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SECURECHANNEL, "Create Certificate: Create certificate .der failed.");
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Create certificate .der failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
         goto cleanup;
     }
@@ -169,6 +284,7 @@ UA_StatusCode UA_CreateCertificate(UA_ByteString *derPKey, UA_ByteString *derCer
 cleanup:
     UA_ByteString_clear(derCert);
     UA_ByteString_clear(derPKey);
+    UA_String_clear(&fullAltSubj);
     RSA_free(rsa);
     X509_free(x509);
     EVP_PKEY_free(pkey);

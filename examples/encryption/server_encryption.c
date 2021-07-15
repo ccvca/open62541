@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
 
     UA_ByteString derPrivKey = UA_BYTESTRING_NULL;
     UA_ByteString derCert = UA_BYTESTRING_NULL;
-    UA_StatusCode statusCertGen = UA_CreateCertificate(&derPrivKey, &derCert);
+    UA_StatusCode statusCertGen = UA_CreateCertificate(UA_Log_Stdout, &derPrivKey, &derCert);
     UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND, "StatusCode Cert: %s", UA_StatusCode_name(statusCertGen));
     FILE* fpCert = fopen("cert.der", "w");
     FILE* fpPKey = fopen("pkey.der", "w");
