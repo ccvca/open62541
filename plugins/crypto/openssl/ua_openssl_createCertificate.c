@@ -39,7 +39,7 @@ static UA_StatusCode UA_String_join_nullterm(const UA_String strings[], size_t l
     for(size_t iStr = 0; iStr < lenStrings; ++iStr) {
         memcpy(&out->data[pos], strings[iStr].data, strings[iStr].length);
         pos += strings[iStr].length;
-        out->data[pos] = sep;
+        out->data[pos] = (UA_Byte) sep;
         ++pos;
     }
     out->data[out->length-1] = 0;
@@ -190,13 +190,13 @@ UA_CreateCertificate(const UA_Logger *logger,
             errRet = UA_STATUSCODE_BADINTERNALERROR;
             goto cleanup;
         }
-        memcpy(field, subject[iSubject].data, sep);
+        memcpy(field, subject[iSubject].data, (size_t) sep);
         field[sep] = 0;
         UA_Byte* pData = &subject[iSubject].data[sep + 1];
         if(X509_NAME_add_entry_by_txt(
                name, field, MBSTRING_ASC,
                (const unsigned char *)pData,
-               subject[iSubject].length - sep - 1, -1, 0) != 1) {
+               (int) subject[iSubject].length - (int) sep - 1, -1, 0) != 1) {
             UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
                            "Create Certificate: Setting subject failed.");
             errRet = UA_STATUSCODE_BADINTERNALERROR;
@@ -259,23 +259,24 @@ UA_CreateCertificate(const UA_Logger *logger,
 
     switch(certFormat) {
         case UA_CERTIFICATE_FORMAT_DER: {
-            outPKey->length = i2d_PrivateKey(pkey, &outPKey->data);
-            if(outPKey->length <= 0) {
-                outPKey->length = 0;
+            int tmpLen;
+            tmpLen = i2d_PrivateKey(pkey, &outPKey->data);
+            if(tmpLen <= 0) {
                 UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
                             "Create Certificate: Create private DER key failed.");
                 errRet = UA_STATUSCODE_BADINTERNALERROR;
                 goto cleanup;
             }
+            outPKey->length = (size_t) tmpLen;
 
-            outCert->length = i2d_X509(x509, &outCert->data);
-            if(outCert->length <= 0) {
-                outCert->length = 0;
+            tmpLen = i2d_X509(x509, &outCert->data);
+            if(tmpLen <= 0) {
                 UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
                             "Create Certificate: Create DER-certificate failed.");
                 errRet = UA_STATUSCODE_BADINTERNALERROR;
                 goto cleanup;
             }
+            outCert->length = (size_t) tmpLen;
             break;
         }
         case UA_CERTIFICATE_FORMAT_PEM: {
@@ -296,7 +297,7 @@ UA_CreateCertificate(const UA_Logger *logger,
             }
 
             UA_ByteString tmpPem = UA_BYTESTRING_NULL;
-            tmpPem.length = BIO_get_mem_data(memPKey, &tmpPem.data);
+            tmpPem.length = (size_t) BIO_get_mem_data(memPKey, &tmpPem.data);
             errRet = UA_ByteString_copy(&tmpPem, outPKey);
             if(errRet != UA_STATUSCODE_GOOD) {
                 UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
@@ -312,7 +313,7 @@ UA_CreateCertificate(const UA_Logger *logger,
                 errRet = UA_STATUSCODE_BADOUTOFMEMORY;
                 goto cleanup;
             }
-            
+
             if(PEM_write_bio_X509(memCert, x509) != 1) {
                 UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
                             "Create Certificate: Generate PEM-Certifcate failed.");
@@ -320,7 +321,7 @@ UA_CreateCertificate(const UA_Logger *logger,
                 goto cleanup;
             }
 
-            tmpPem.length = BIO_get_mem_data(memCert, &tmpPem.data);
+            tmpPem.length = (size_t) BIO_get_mem_data(memCert, &tmpPem.data);
             errRet = UA_ByteString_copy(&tmpPem, outCert);
             if(errRet != UA_STATUSCODE_GOOD) {
                 UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
