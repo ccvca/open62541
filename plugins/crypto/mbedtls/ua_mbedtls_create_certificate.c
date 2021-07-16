@@ -9,6 +9,8 @@
 
 #include "securitypolicy_mbedtls_common.h"
 
+#ifdef UA_ENABLE_ENCRYPTION_MBEDTLS
+
 UA_StatusCode
 UA_CreateCertificate(const UA_Logger *logger,
                     UA_String subject[], UA_UInt32 lenSubject,
@@ -25,3 +27,5 @@ UA_CreateCertificate(const UA_Logger *logger,
                        "Create Certificate: Not implemented for mbedTLS.");
     return UA_STATUSCODE_BADNOTIMPLEMENTED;
 }
+
+#endif

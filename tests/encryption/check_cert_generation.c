@@ -7,14 +7,17 @@
  */
 
 #include <open62541/server_config_default.h>
+#include <open62541/plugin/log_stdout.h>
+
+#include <check.h>
 
 UA_Server *server;
 
-void setup() {
+static void setup(void) {
     server = UA_Server_new();
 }
 
-void teardown() {
+static void teardown(void) {
     UA_Server_delete(server);
 }
 

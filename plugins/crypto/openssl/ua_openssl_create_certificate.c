@@ -6,8 +6,10 @@
  *
  */
 
-
 #include "securitypolicy_openssl_common.h"
+
+#if defined(UA_ENABLE_ENCRYPTION_OPENSSL) || defined(UA_ENABLE_ENCRYPTION_LIBRESSL)
+
 
 #define RSA_KEY_SIZE 4096
 #include <openssl/pem.h>
@@ -360,3 +362,5 @@ cleanup:
     BN_free(exponent);
     return errRet;
 }
+
+#endif
