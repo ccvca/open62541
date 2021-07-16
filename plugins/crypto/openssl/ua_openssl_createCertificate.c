@@ -83,29 +83,26 @@ add_x509V3ext(X509 *x509, int nid, const char *value) {
 }
 
 UA_StatusCode
-UA_CreateCertificate(const UA_Logger *logger, UA_ByteString *derPKey,
-                     UA_ByteString *derCert) {
-    if(!derPKey || !derCert) {
+UA_CreateCertificate(const UA_Logger *logger,
+                    UA_String subject[], UA_UInt32 lenSubject,
+                    UA_String subjectAltName[], UA_UInt32 lenSubjectAltName,
+                    UA_ByteString *outPKey, UA_ByteString *outCert,
+                    enum UA_CertificateFormat certFormat) {
+    if(!outPKey || !outCert) {
         return UA_STATUSCODE_BADINVALIDARGUMENT;
     }
-    UA_ByteString_clear(derPKey);
-    UA_ByteString_clear(derCert);
-    UA_String subject[3] = {UA_STRING_STATIC("C=DE"),
-                            UA_STRING_STATIC("O=SampleOrganization"),
-                            UA_STRING_STATIC("CN=Open62541Server@localhost")};
-    UA_UInt32 lenSubject = 3;
-    UA_String subjectAltName[2]= {
-        UA_STRING_STATIC("DNS:localhost"),
-        UA_STRING_STATIC("URI:urn:open62541.server.application")
-    };
+    UA_ByteString_clear(outPKey);
+    UA_ByteString_clear(outCert);
+
     UA_String fullAltSubj = UA_STRING_NULL;
-    UA_UInt32 lenSubjectAltName = 2;
     UA_Int32 serial = 1;
 
-    /// \TODO: Seed Random geenrator!!
+    /// \TODO: Seed Random generator!!
     X509 *x509 = NULL;
     EVP_PKEY *pkey = NULL;
     RSA *rsa = NULL;
+    BIO *memCert = NULL;
+    BIO *memPKey = NULL;
 
     UA_StatusCode errRet = UA_STATUSCODE_GOOD;
 
@@ -260,33 +257,91 @@ UA_CreateCertificate(const UA_Logger *logger, UA_ByteString *derPKey,
         goto cleanup;
     }
 
-    derPKey->length = i2d_PrivateKey(pkey, &derPKey->data);
-    if(derPKey->length <= 0) {
-        derPKey->length = 0;
-        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
-                       "Create Certificate: Create private .der key failed.");
-        errRet = UA_STATUSCODE_BADINTERNALERROR;
-        goto cleanup;
-    }
-    BIO *bioCert = BIO_new_file("cert2.pem.crt", "w");
-    PEM_write_bio_X509(bioCert, x509);
+    switch(certFormat) {
+        case UA_CERTIFICATE_FORMAT_DER: {
+            outPKey->length = i2d_PrivateKey(pkey, &outPKey->data);
+            if(outPKey->length <= 0) {
+                outPKey->length = 0;
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Create private DER key failed.");
+                errRet = UA_STATUSCODE_BADINTERNALERROR;
+                goto cleanup;
+            }
 
-    derCert->length = i2d_X509(x509, &derCert->data);
-    if(derCert->length <= 0) {
-        derCert->length = 0;
-        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
-                       "Create Certificate: Create certificate .der failed.");
-        errRet = UA_STATUSCODE_BADINTERNALERROR;
-        goto cleanup;
+            outCert->length = i2d_X509(x509, &outCert->data);
+            if(outCert->length <= 0) {
+                outCert->length = 0;
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Create DER-certificate failed.");
+                errRet = UA_STATUSCODE_BADINTERNALERROR;
+                goto cleanup;
+            }
+            break;
+        }
+        case UA_CERTIFICATE_FORMAT_PEM: {
+            // PKey
+            memPKey = BIO_new(BIO_s_mem());
+            if(!memPKey) {
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Allocate Membuffer for PKey failed.");
+                errRet = UA_STATUSCODE_BADOUTOFMEMORY;
+                goto cleanup;
+            }
+
+            if(PEM_write_bio_PrivateKey(memPKey, pkey, NULL, NULL, 0, 0, NULL) != 1) {
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Generate PEM-PrivateKey failed.");
+                errRet = UA_STATUSCODE_BADINTERNALERROR;
+                goto cleanup;
+            }
+
+            UA_ByteString tmpPem = UA_BYTESTRING_NULL;
+            tmpPem.length = BIO_get_mem_data(memPKey, &tmpPem.data);
+            errRet = UA_ByteString_copy(&tmpPem, outPKey);
+            if(errRet != UA_STATUSCODE_GOOD) {
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Copy PEM PKey failed.");
+                goto cleanup;
+            }
+
+            // Cert
+            memCert = BIO_new(BIO_s_mem());
+            if(!memCert) {
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Allocate Membuffer for Cert failed.");
+                errRet = UA_STATUSCODE_BADOUTOFMEMORY;
+                goto cleanup;
+            }
+            
+            if(PEM_write_bio_X509(memCert, x509) != 1) {
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Generate PEM-Certifcate failed.");
+                errRet = UA_STATUSCODE_BADINTERNALERROR;
+                goto cleanup;
+            }
+
+            tmpPem.length = BIO_get_mem_data(memCert, &tmpPem.data);
+            errRet = UA_ByteString_copy(&tmpPem, outCert);
+            if(errRet != UA_STATUSCODE_GOOD) {
+                UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                            "Create Certificate: Copy PEM Certificate failed.");
+                goto cleanup;
+            }
+            break;
+        }
+        default: {
+            UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Unknown format.");
+        }
     }
 
-    return UA_STATUSCODE_GOOD;
+
 cleanup:
-    UA_ByteString_clear(derCert);
-    UA_ByteString_clear(derPKey);
     UA_String_clear(&fullAltSubj);
     RSA_free(rsa);
     X509_free(x509);
     EVP_PKEY_free(pkey);
+    BIO_free(memCert);
+    BIO_free(memPKey);
     return errRet;
 }

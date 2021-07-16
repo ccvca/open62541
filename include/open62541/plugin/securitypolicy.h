@@ -320,8 +320,17 @@ struct UA_SecurityPolicy {
     void (*clear)(UA_SecurityPolicy *policy);
 };
 
+enum UA_CertificateFormat {
+    UA_CERTIFICATE_FORMAT_DER,
+    UA_CERTIFICATE_FORMAT_PEM
+};
+
 UA_StatusCode
-UA_CreateCertificate(const UA_Logger *logger, UA_ByteString *derPKey, UA_ByteString *derCert);
+UA_CreateCertificate(const UA_Logger *logger,
+                    UA_String subject[], UA_UInt32 lenSubject,
+                    UA_String subjectAltName[], UA_UInt32 lenSubjectAltName,
+                    UA_ByteString *outPKey, UA_ByteString *outDerCert,
+                    enum UA_CertificateFormat certFormat);
 
 /**
  * PubSub SecurityPolicy
