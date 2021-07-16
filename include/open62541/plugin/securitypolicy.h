@@ -337,7 +337,7 @@ enum UA_CertificateFormat {
  * \param subjectAltName Elements for SubjectAltName,
  *                  e.g. ["DNS:localhost", "URI:urn:open62541.server.application"]
  */
-UA_StatusCode
+UA_StatusCode UA_EXPORT
 UA_CreateCertificate(const UA_Logger *logger,
                     UA_String subject[], UA_UInt32 lenSubject,
                     UA_String subjectAltName[], UA_UInt32 lenSubjectAltName,
