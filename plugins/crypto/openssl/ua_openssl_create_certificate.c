@@ -2,12 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
- *    Copyright 2021 (c) Christian von Arnim, ISW University of Stuttgart (for VDW and
- * umati)
+ *    Copyright 2021 (c) Christian von Arnim, ISW University of Stuttgart (for VDW and umati)
  *
  */
 
-#include "ua_openssl_version_abstraction.h"
 
 #include "securitypolicy_openssl_common.h"
 
@@ -16,9 +14,13 @@
 #include <openssl/x509v3.h>
 
 /**
- * Join an array of UA_String to a single NULL-Terminated UA_String separated by character sep
+ * Join an array of UA_String to a single NULL-Terminated UA_String
+ * separated by character sep
  */
-static UA_StatusCode UA_String_join_nullterm(const UA_String strings[], size_t lenStrings, char sep, UA_String *out) {
+static UA_StatusCode UA_String_join_nullterm(
+    const UA_String strings[], size_t lenStrings,
+    char sep,
+    UA_String *out) {
     if(!out)
     {
         return UA_STATUSCODE_BADINVALIDARGUMENT;
@@ -88,7 +90,8 @@ UA_CreateCertificate(const UA_Logger *logger,
                     UA_String subjectAltName[], UA_UInt32 lenSubjectAltName,
                     UA_ByteString *outPKey, UA_ByteString *outCert,
                     enum UA_CertificateFormat certFormat) {
-    if(!outPKey || !outCert) {
+    if(!outPKey || !outCert || !logger || !subjectAltName
+        || !subject || lenSubjectAltName == 0 || lenSubject == 0) {
         return UA_STATUSCODE_BADINVALIDARGUMENT;
     }
     UA_ByteString_clear(outPKey);
@@ -97,7 +100,8 @@ UA_CreateCertificate(const UA_Logger *logger,
     UA_String fullAltSubj = UA_STRING_NULL;
     UA_Int32 serial = 1;
 
-    /// \TODO: Seed Random generator? (https://www.openssl.org/docs/man1.1.0/man3/RAND_add.html)
+    /** \TODO: Seed Random generator
+    * See: (https://www.openssl.org/docs/man1.1.0/man3/RAND_add.html) */
     X509 *x509 = NULL;
     EVP_PKEY *pkey = NULL;
     RSA *rsa = NULL;

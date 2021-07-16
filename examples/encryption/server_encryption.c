@@ -45,17 +45,44 @@ int main(int argc, char* argv[]) {
     fwrite(derPrivKey.data, 1, derPrivKey.length, fpPKey);
     fclose(fpCert);
     fclose(fpPKey);
-    if(argc < 3) {
+    UA_ByteString certificate = UA_BYTESTRING_NULL;
+    UA_ByteString privateKey = UA_BYTESTRING_NULL;
+    if(argc >= 3) {
+        /* Load certificate and private key */
+        certificate = loadFile(argv[1]);
+        privateKey = loadFile(argv[2]);
+    }
+    else {
         UA_LOG_FATAL(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
                      "Missing arguments. Arguments are "
                      "<server-certificate.der> <private-key.der> "
                      "[<trustlist1.crl>, ...]");
-        return EXIT_FAILURE;
+        UA_LOG_FATAL(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND, 
+                      "Trying to create a certificate.");
+        UA_String subject[3] = {UA_STRING_STATIC("C=DE"),
+                            UA_STRING_STATIC("O=SampleOrganization"),
+                            UA_STRING_STATIC("CN=Open62541Server@localhost")};
+        UA_UInt32 lenSubject = 3;
+        UA_String subjectAltName[2]= {
+            UA_STRING_STATIC("DNS:localhost"),
+            UA_STRING_STATIC("URI:urn:open62541.server.application")
+        };
+        UA_UInt32 lenSubjectAltName = 2;
+        UA_StatusCode statusCertGen = UA_CreateCertificate(
+                UA_Log_Stdout,
+                subject, lenSubject,
+                subjectAltName, lenSubjectAltName,
+                &privateKey, &certificate,
+                UA_CERTIFICATE_FORMAT_DER);
+
+        if(statusCertGen != UA_STATUSCODE_GOOD) {
+            UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
+                "Generating Certificate failed: %s",
+                UA_StatusCode_name(statusCertGen));
+            return EXIT_FAILURE;
+        }
     }
 
-    /* Load certificate and private key */
-    UA_ByteString certificate = loadFile(argv[1]);
-    UA_ByteString privateKey = loadFile(argv[2]);
 
     /* Load the trustlist */
     size_t trustListSize = 0;
