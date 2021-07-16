@@ -25,26 +25,6 @@ static void stopHandler(int sig) {
 int main(int argc, char* argv[]) {
     signal(SIGINT, stopHandler);
     signal(SIGTERM, stopHandler);
-
-    UA_ByteString derPrivKey = UA_BYTESTRING_NULL;
-    UA_ByteString derCert = UA_BYTESTRING_NULL;
-    UA_String subject[3] = {UA_STRING_STATIC("C=DE"),
-                            UA_STRING_STATIC("O=SampleOrganization"),
-                            UA_STRING_STATIC("CN=Open62541Server@localhost")};
-    UA_UInt32 lenSubject = 3;
-    UA_String subjectAltName[2]= {
-        UA_STRING_STATIC("DNS:localhost"),
-        UA_STRING_STATIC("URI:urn:open62541.server.application")
-    };
-    UA_UInt32 lenSubjectAltName = 2;
-    UA_StatusCode statusCertGen = UA_CreateCertificate(UA_Log_Stdout, subject, lenSubject, subjectAltName, lenSubjectAltName, &derPrivKey, &derCert, UA_CERTIFICATE_FORMAT_PEM);
-    UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND, "StatusCode Cert: %s", UA_StatusCode_name(statusCertGen));
-    FILE* fpCert = fopen("cert.crt", "wb");
-    FILE* fpPKey = fopen("pkey.crt", "wb");
-    fwrite(derCert.data, 1, derCert.length, fpCert);
-    fwrite(derPrivKey.data, 1, derPrivKey.length, fpPKey);
-    fclose(fpCert);
-    fclose(fpPKey);
     UA_ByteString certificate = UA_BYTESTRING_NULL;
     UA_ByteString privateKey = UA_BYTESTRING_NULL;
     if(argc >= 3) {
