@@ -39,10 +39,12 @@ int main(int argc, char* argv[]) {
     UA_UInt32 lenSubjectAltName = 2;
     UA_StatusCode statusCertGen = UA_CreateCertificate(UA_Log_Stdout, subject, lenSubject, subjectAltName, lenSubjectAltName, &derPrivKey, &derCert, UA_CERTIFICATE_FORMAT_PEM);
     UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND, "StatusCode Cert: %s", UA_StatusCode_name(statusCertGen));
-    FILE* fpCert = fopen("cert.der", "wb");
-    FILE* fpPKey = fopen("pkey.der", "wb");
+    FILE* fpCert = fopen("cert.crt", "wb");
+    FILE* fpPKey = fopen("pkey.crt", "wb");
     fwrite(derCert.data, 1, derCert.length, fpCert);
     fwrite(derPrivKey.data, 1, derPrivKey.length, fpPKey);
+    fclose(fpCert);
+    fclose(fpPKey);
     if(argc < 3) {
         UA_LOG_FATAL(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
                      "Missing arguments. Arguments are "

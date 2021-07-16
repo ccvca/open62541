@@ -97,28 +97,37 @@ UA_CreateCertificate(const UA_Logger *logger,
     UA_String fullAltSubj = UA_STRING_NULL;
     UA_Int32 serial = 1;
 
-    /// \TODO: Seed Random generator!!
+    /// \TODO: Seed Random generator? (https://www.openssl.org/docs/man1.1.0/man3/RAND_add.html)
     X509 *x509 = NULL;
     EVP_PKEY *pkey = NULL;
     RSA *rsa = NULL;
+    BIGNUM* exponent = NULL;
     BIO *memCert = NULL;
     BIO *memPKey = NULL;
 
     UA_StatusCode errRet = UA_STATUSCODE_GOOD;
 
+    exponent = BN_new();
     pkey = EVP_PKEY_new();
     x509 = X509_new();
+    rsa = RSA_new();
 
-    if(!pkey || !x509) {
+    if(!pkey || !x509 || !exponent || !rsa) {
         errRet = UA_STATUSCODE_BADOUTOFMEMORY;
         goto cleanup;
     }
 
     UA_LOG_INFO(logger, UA_LOGCATEGORY_SECURECHANNEL,
                 "Create Certificate: Generating RSA key. This may take a while.");
-    /// \todo use new RSA_generate_key_ex with backward compatible wrapper
-    rsa = RSA_generate_key(RSA_KEY_SIZE, RSA_F4, NULL, NULL);
-    if(!rsa) {
+
+    if(BN_set_word(exponent, RSA_F4) != 1) {
+        UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
+                       "Create Certificate: Setting RSA exponent failed.");
+        errRet = UA_STATUSCODE_BADINTERNALERROR;
+        goto cleanup;
+    }
+
+    if(RSA_generate_key_ex(rsa, RSA_KEY_SIZE, exponent, NULL) != 1) {
         UA_LOG_ERROR(logger, UA_LOGCATEGORY_SECURECHANNEL,
                        "Create Certificate: Generating RSA key failed.");
         errRet = UA_STATUSCODE_BADINTERNALERROR;
@@ -344,5 +353,6 @@ cleanup:
     EVP_PKEY_free(pkey);
     BIO_free(memCert);
     BIO_free(memPKey);
+    BN_free(exponent);
     return errRet;
 }
